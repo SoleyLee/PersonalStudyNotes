@@ -33,7 +33,7 @@
 
 * 最近航空影像目标检测的工作大多基于R-CNN模型，检测流程为基于水平边界框ROI的区域定位过程和在 RoI 上的特征提取与分类过程。在使用水平 RoI (HRoI) 时可能会导致目标区域和定位区域出现明显的错位现象，使得模型训练存在不稳定的隐患，同时也较难完成精准的定位与分类操作，如 Figure 1 所示。
 
-  [此处插入Figure 1]
+  --[此处插入Figure 1]--
 
 * 目前使用了旋转 ROI 的文章通常在 region proposal 阶段给 anchor 加上了代表旋转角度α的自由度， anchor 的参数集更新为 (纵横比 aspect_ratio , 尺度缩放 scale , 旋转角度 angle)，同时定位框的回归目标也更新为 (框中心坐标 x , 框中心坐标 y , 框宽 w , 框高 h , 框旋转角 α)。若要求旋转的 proposal 和目标区域高度重合，需要 angle 具有较小的分割间隔，则势必需要生成大量具有不同 angle + scale + aspect_ratio 的 anchor ，计算复杂度也会随之增加，检测速度必然会急剧下降。若angle的分割间隔较大，则旋转proposal的定位效果会下降。
 
@@ -81,9 +81,43 @@
 
 * ### Light RoI-wise Operations
 
-  
+  Two stage 的目标检测方法是基于 proposal 的，需要引入额外的计算量来对 ROI 进行分类与回归，由于 proposal不可复用，当其数量不断增多时，R-CNN系列模型的计算量会陡增。在 Two stage 中，第一个 stage 大多基于 ImageNet 预训练，只是做一个二分类，提取出的 feature map 的 channel 不会很多。而第二个 stage (Head 部分)通常贡献较大的计算量，其计算复杂度取决于 pooling 的 feature map 的厚度，以及对 pooling 操作后的 feature 进行分类和归回的计算层的复杂度。
+
+  Light-Head R-CNN 的作者为了提升R-CNN模型的检测速度，改进了 Head 部分的结构，使得第二个 stage 变得更加灵活可控，降低了 Pooling 的 feature map 的维度，在预测部分引入额外的全连接层，检测效率相比 R-FCN 提升了10倍，甚至超过了部分 one-stage 的检测算法。
+
+  本文中作者在试验阶段使用的是和 deformable RoI pooling 类似的操作方法，RoI层面的计算进行了两轮(计算量变大了)，因而使用 Light Head 的设计思路可以在检测效率上得到一定的保障。
 
 ***
+
+## RoI Transformer
+
+​	RoI Transformer 主要包括两部分：RRoI Learner(fc layer) 和 RRoI warping layer。RRoI Learner 根据估算的 horizontal RoIs 学习对应的 rotated RoIs (描述 HRoI 和 RRoI 的映射关系)，之后 RRoI warping layer 将特征图扭曲变形来保持深层次特征仍有一定的旋转不变性。RoI Transformer 的结构如 Fig.2 所示。
+
+​	--[此处插入Fig.2]--
+
+* ### RRoI Learner
+
+  RRoI Learner 的目的是学习从 HRoI 到 RRoI 的映射，该部分的设计基于这样一个假设：
+
+  > Every HRoI is the external rectangle of a RRoI in ideal scenarios.
+
+  即在理想情况下一个目标的 HRoI 是可以把 RRoI 紧密包起来的(非理想情况下 RRoI 的四个直角顶点会越过 HRoI 的边界)。假设已经获得了 $n$ 个 HRoI，记作$\left\{\mathcal{H}_{i}\right\}$，其数据结构为$(x, y, w, h)$，每个 HRoI 对应的特征图记作 $\left\{\mathcal{F}_{i}\right\}$ 。类似于 R-CNN 系列模型，文章中使用目标检测中的 offset learning 方法来设计回归目标，回归目标的计算公式如下所示：
+  $$
+  \begin{aligned} t_{x}^{*} &=\frac{1}{w_{r}}\left(\left(x^{*}-x_{r}\right) \cos \theta_{r}+\left(y^{*}-y_{r}\right) \sin \theta_{r}\right) \\ t_{y}^{*} &=\frac{1}{h_{r}}\left(\left(y^{*}-y_{r}\right) \cos \theta_{r}-\left(x^{*}-x_{r}\right) \sin \theta_{r}\right) ) \\ t_{w}^{*} &=\log \frac{w^{*}}{w_{r}}, \quad t_{h}^{*}=\log \frac{h^{*}}{h_{r}} \\ t_{\theta}^{*} &=\frac{1}{2 \pi}\left(\left(\theta^{*}-\theta_{r}\right) \quad \bmod 2 \pi\right) \end{aligned}
+  $$
+  其中 $\left(x_{r}, y_{r}, w_{r}, h_{r}, \theta_{r}\right)$ 是 RRoI 的位置向量，$\left(x^{*}, y^{*}, w^{*}, h^{*}, \theta^{*}\right)​$ 是真实 oriented bounding box 的参数向量。
+
+* ### Rotated Position Sensitive RoI Align
+
+
+
+* ### RoI Transformer for Oriented Object Detection
+
+  
+
+---
+
+## Experiments and Analysis
 
 
 
