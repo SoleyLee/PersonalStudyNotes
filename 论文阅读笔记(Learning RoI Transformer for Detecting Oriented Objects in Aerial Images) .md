@@ -101,19 +101,52 @@
 
   > Every HRoI is the external rectangle of a RRoI in ideal scenarios.
 
-  即在理想情况下一个目标的 HRoI 是可以把 RRoI 紧密包起来的(非理想情况下 RRoI 的四个直角顶点会越过 HRoI 的边界)。假设已经获得了 $n$ 个 HRoI，记作$\left\{\mathcal{H}_{i}\right\}$，其数据结构为$(x, y, w, h)$，每个 HRoI 对应的特征图记作 $\left\{\mathcal{F}_{i}\right\}$ 。类似于 R-CNN 系列模型，文章中使用目标检测中的 offset learning 方法来设计回归目标，回归目标的计算公式如下所示：
+  即在理想情况下一个目标的 HRoI 是可以把 RRoI 紧密包起来的(非理想情况下 RRoI 的四个直角顶点会越过 HRoI 的边界)。假设已经获得了 $n​$ 个 HRoI，记作$\left\{\mathcal{H}_{i}\right\}​$，其数据结构为 $\left(x, y, w, h\right)​$，每个 HRoI 对应的特征图记作 $\left\{\mathcal{F}_{i}\right\}​$ 。类似于 R-CNN 系列模型，文章中使用目标检测中的 offset learning 方法来设计回归目标，回归目标的计算公式如下所示：
   $$
   \begin{aligned} t_{x}^{*} &=\frac{1}{w_{r}}\left(\left(x^{*}-x_{r}\right) \cos \theta_{r}+\left(y^{*}-y_{r}\right) \sin \theta_{r}\right) \\ t_{y}^{*} &=\frac{1}{h_{r}}\left(\left(y^{*}-y_{r}\right) \cos \theta_{r}-\left(x^{*}-x_{r}\right) \sin \theta_{r}\right) ) \\ t_{w}^{*} &=\log \frac{w^{*}}{w_{r}}, \quad t_{h}^{*}=\log \frac{h^{*}}{h_{r}} \\ t_{\theta}^{*} &=\frac{1}{2 \pi}\left(\left(\theta^{*}-\theta_{r}\right) \quad \bmod 2 \pi\right) \end{aligned}
   $$
-  其中 $\left(x_{r}, y_{r}, w_{r}, h_{r}, \theta_{r}\right)$ 是 RRoI 的位置向量，$\left(x^{*}, y^{*}, w^{*}, h^{*}, \theta^{*}\right)​$ 是真实 oriented bounding box 的参数向量。
+  其中 $\left(x_{r}, y_{r}, w_{r}, h_{r}, \theta_{r}\right)​$ 是 RRoI 的位置参数向量，$\left(x^{*}, y^{*}, w^{*}, h^{*}, \theta^{*}\right)​$ 是真实 oriented bounding box 的参数向量，相对偏移的图示描绘于 Fig.3 中。为方便计算，此处将值域为 $[0,2 \pi)​$ 的角度偏移回归目标 $t_{\theta}^{*}​$ 归一化到  $[0,1)​$ 区间。当取值 $\theta^{*}=\frac{3 \pi}{2}​$ 时，上述 RRoI 回归目标即为 HRoI 的回归目标。
+
+  --[此处插入 Fig.3]--
+
+  RRoI Transformer 中的全连接层针对每个特征图 $\mathcal{F}_{i}​$ 输出一个结构为 $\left(t_{x}, t_{y}, t_{w}, t_{h}, t_{\theta}\right)​$ 的向量: 
+  $$
+  t=\mathcal{G}(\mathcal{F} ; \Theta)
+  $$
+  其中 $\mathcal{G}$ 代表全连接层，$\Theta$ 为全连接层的参数，$\mathcal{F}$ 是每个 HRoI 的特征图。当训练 $\mathcal{G}$ 时，需要匹配输入的 HRoI 和真值 OBB 。为了便于计算，此处的匹配操作在 HRoI 和坐标轴对齐后的 bounding box 之间进行。Loss function 使用 $Smooth L1$ loss function 。对于每次前向传播输出的预测参数向量 $t$ ，还需要将其从 offset 转换为对应的 RRoI 的参数向量。
+
+  按照上述的处理流程， RRoI Learner 就可以从 HRoI 的特征图中学习到相应的 RRoI 的参数向量。
 
 * ### Rotated Position Sensitive RoI Align
 
+  有了上一小节输出的 RRoI 的参数向量，就有条件为 Oriented Object Detection 提取具有旋转不变性的深度特征。此处作者设计了一个 Rotated Position Sensitive(RPS) RoI Align 模块实现上述目标。
 
+  假设此时有维度为 $H \times W \times C$ 的特征图 $D$ 和参数向量为 $\left(x_{r}, y_{r}, w_{r}, h_{r}, \theta_{r}\right)$ 的 RRoI。RPS RoI pooling 操作先将 RRoI 分割为 $K \times K$ 个小格 (bin)，然后通过计算输出一个结构为 $(K \times K \times C)$ 的特征图 $\mathcal{Y}$ 。对输出通道 $c(0 \leq c<C)$ 中的第 $(i, j)(0 \leq i, j<K)$ 个小方格，RPS RoI pooling 的计算公式为：
+  $$
+  \mathcal{Y}_{c}(i, j)=\sum_{(x, y) \in \operatorname{bin}(i, j)} D_{i, j, c}\left(\mathcal{T}_{\theta}(x, y)\right) / n_{i j}
+  $$
+  其中 $D_{i, j, c}$ 是 $K \times K \times C$ 个特征图中的单个特征图。Channel mapping 的方式和原始 Position Sensitive RoI pooling 中的操作相同。$n_{i j}$ 是单个小方格中进行采样的点的个数。$\operatorname{bin _{(i, j)}}$ 表示坐标集：
+  $$
+  \left\{i \frac{w_{r}}{k}+\left(s_{x}+0.5\right) \frac{w_{r}}{k \times n} ; s_{x}=0,1, \dots n-1\right\} \times\left\{j \frac{h_{r}}{k}+(s_{y}+0.5) \frac{h_{r}}{k \times n} ; s_{y}=0,1, \dots n-1 \}$\right.
+  $$
+  对每个 $(x, y) \in \operatorname{bin}(i, j)$ ，其坐标经过 $T_{\theta}$ 被映射为 $\left(x^{\prime}, y^{\prime}\right)$ 。映射公式如下所示：
+  $$
+  \left( \begin{array}{l}{x^{\prime}} \\ {y^{\prime}}\end{array}\right)=\left( \begin{array}{cc}{\cos \theta} & {-\sin \theta} \\ {\sin \theta} & {\cos \theta}\end{array}\right) \left( \begin{array}{c}{x-w_{r} / 2} \\ {y-h_{r} / 2}\end{array}\right)+\left( \begin{array}{l}{x_{r}} \\ {y_{r}}\end{array}\right)
+  $$
 
 * ### RoI Transformer for Oriented Object Detection
 
+  RRoI Learner 与 RPS RoI Align 组合起来可以替换掉通用的 RoI warping 操作。这样的改进不进可以通过 RoI Transformer (RT) 提取出具有旋转不变性的特征，而且由于以 RRoI 作为匹配对象相对于 HRoI 更接近 Rotated Ground Truth，后续回归操作的初始化得到了改善。**(Why?)**
+
   
+
+  * IoU between OBBs
+
+    
+
+  * Targets Calculation
+
+    
 
 ---
 
