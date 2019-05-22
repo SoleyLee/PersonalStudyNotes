@@ -136,21 +136,71 @@
 
 * ### RoI Transformer for Oriented Object Detection
 
-  RRoI Learner 与 RPS RoI Align 组合起来可以替换掉通用的 RoI warping 操作。这样的改进不进可以通过 RoI Transformer (RT) 提取出具有旋转不变性的特征，而且由于以 RRoI 作为匹配对象相对于 HRoI 更接近 Rotated Ground Truth，后续回归操作的初始化得到了改善。**(Why?)**
+  RRoI Learner 与 RPS RoI Align 组合起来可以替换掉通用的 RoI warping 操作。这样的改进不仅可以通过 RoI Transformer (RT) 提取出具有旋转不变性的特征，而且由于以 RRoI 作为匹配对象相对于 HRoI 更接近 Rotated Ground Truth，后续回归操作的初始化得到了改善。**(Why?)**
 
-  
+  在本章第一小节我们规定了 RRoI 的位置参数向量为 $\left(x_{r}, y_{r}, w_{r}, h_{r}, \theta_{r}\right)$，为了避免计算过程中的对应关系混乱，此处我们假设 $h$ 为 RRoI 的短边，$w$ 为长边，RRoI 的旋转方向为垂直于短边 $h$ 的角度朝向。
 
-  * IoU between OBBs
+  * **IoU between OBBs**
 
-    
+    IoU 的计算通常出现在 bounding box 的匹配操作和 NMS 操作中。类似于 HBBs 的 IoU 计算方式，此处规定两个 OBBs 之间的 IoU 计算公式为：
+    $$
+    I_{O} U=\frac{\operatorname{area}\left(B_{1} \cap B_{2}\right)}{\operatorname{area}\left(B_{1} \cup B_{2}\right)}
+    $$
+    其中 $B_{1}$ 和 $B_{2}$ 分别代表 RRoI 和 RGT。此时两个 bounding box 交叠部分有可能是四边形，也有可能为多边形，如图 Fig.5 所示。若某个 RRoI 和 RGT 之间的 IoU 大于 0.5，那么就将该 RRoI 指定为 True Positive 。当两个 bounding box 是长条形的时候，在角度上微小的偏移会让 IoU 的数值变得很低，进而给 NMS 操作增加难度，如图 Fig.5(b) 所示。
 
-  * Targets Calculation
+    --[此处插入 Fig.5]--
 
-    
+  * **Targets Calculation**
+
+    RRoI warping 操作输出了具有旋转不变性的特征，此时通过计算得到的偏移量 offsets 也应该是具有旋转不变性的。为了实现这种效果，我们在 offsets 的计算过程中选取和 RRoI 的长短边均平行的坐标系作为计算基准，将利用原始图像坐标系计算出的偏移量投影到新的坐标系中。
 
 ---
 
 ## Experiments and Analysis
+
+* ### Datasets
+
+  Oriented object detection 实验在两个数据集上进行，分别为：DOTA 和 HRSC2016。
+
+  * **DOTA.** DOTA 数据集是目前已知的 最大的 含朝向边界框标注的 航空遥感影像数据集。数据集包含2806张遥感图像 (大小约4000*4000)，188,282个尺度、朝向和长宽比各异的 instances，分为15个类别，样本类别及数目如下图所示 (与另一个同领域公开数据集 NWPU VHR-10 对比)：
+
+    --[此处插入DOTA数据集样本数量柱形图]--
+
+    实验前我们对原始数据集做了一定的增广。对于 training 和 testing 中的图像按照两种尺度比例 (1.0 和 0.5) 进行缩放操作(**是每张图都做两种缩放还是training 1.0, testing 0.5?**)。之后从原始图像中以 824 像素的步长裁剪出若干个 $1024 \times 1024$ 的 patches 。对于样本数目较少的类别，我们随机地从 (0, 90, 180, 270) 四个角度对样本进行扩充 。(**是四个角度都用了还是只用一个？**)
+
+    按照上述数据增广的操作思路，我们最终得到了 37373 个 patch ，比官方 baseline 所用的 150342 个 patch 少的多。在测试阶段，依旧以 $1024 \times 1024​$ 的大小选取 patch，stride 设定为 512 。
+
+  * **HRSC2016.** HRSC2016 是一个针对航空遥感图像舰船检测任务的数据集，来源是 Google Earth 。数据集中共有 1061 张遥感图像，20 多种不同类别和外型的舰船目标。单张图像尺寸大小从 $300 \times 300$ 到 $1500 \times 900​$ 不等。源数据集中有 436 张作为训练集，181 张作为验证集，444 张作为测试集。在数据增广阶段我们采用了水平翻转操作和将图像 resize 为 (512, 800) 来扩充可用样本数量。
+
+* ### Implementation details
+
+  **Baseline Framework：** 我们的实验借鉴了以 ResNet101 为 backbone 的 Light-Head R-CNN 的网络结构。最终展示的检测效果是基于 FPN 来实现的，但考虑到实现复杂度并没有将其也用在 ablation experiments 章节。
+
+  * #### Light-Head R-CNN OBB
+
+    
+
+  * #### Light-Head R-CNN OBB with FPN
+
+    
+
+* ### Comparison with Deformable PS RoI Pooling
+
+
+
+* ### Ablation Studies
+
+
+
+* ### Comparisons with the State-of-the-art
+
+
+
+---
+
+## Conclusion
+
+
 
 
 
