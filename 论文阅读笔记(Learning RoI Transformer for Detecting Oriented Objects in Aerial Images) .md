@@ -178,19 +178,69 @@
 
   * #### Light-Head R-CNN OBB
 
-    
+    我们在模型的第二阶段修改了全连接层的回归目标以完成 OBBs 的预测任务。在文献[5]中我们用 $\left(\left(x_{i}, y_{i}\right), i=1,2,3,4\right)$ 来表示 OBB，但在本文的实验中我们将其替换为 $(x, y, w, h, \theta)$ 。由于多了一个参数 $\theta$ ，我们并没有像 Light-Head R-CNN 原文中那样把 regression loss 翻倍。(**WHY?**) 
+
+    在进行可分离卷积时，我们选取 $k=15$，$C m i d=256$，$C out=490$ 。
+
+    训练阶段没有使用 OHEM 来进行采样。
+
+    在 RPN 部分，我们用了 15 个 anchor 作为原始的 Light-Head R-CNN，batch size 设为 512 。在 NMS 操作之后 RoI 的数量由 6000 缩减为 800 。接着有 512 个 RoI 参与 R-CNN 的训练过程。
+
+    在训练时，学习率在初始的 14 个 epoch 设定为 0.0005，之后每隔 4 个 epoch 缩小 10 倍。
+
+    在测试时，RPN 总共生成 6000 个 RoI，经过 NMS 处理剩下 1000 个。
 
   * #### Light-Head R-CNN OBB with FPN
 
-    
+    Light-Head R-CNN OBB 以 FPN 作为 backbone 。由于基于 FPN 的 Light-Head R-CNN 并没有开源代码，所以我们的实验细节可能有些许调整。
+
+    $P_{2}, P_{3}, P_{4}, P_{5}$ 四个等级的特征经过大尺寸的可分离卷积后直接相加。可分离卷积的超参数设定为 $k=15$，$C m i d=64$，$C out=490$ 。RPN 的 batchsize 设为 512，总共生成 6000 个 RoIs，经过 NMS 操作之后留下 600 个可用 RoIs。接着有 512 个 RoI 参与 R-CNN 的训练过程。
+
+    在训练时，学习率在初始的 5个 epoch 设定为 0.005，之后每隔 2 个 epoch 缩小 10 倍。
 
 * ### Comparison with Deformable PS RoI Pooling
 
+  为了证明性能的提升并不依赖于引入额外的计算，我们和 deformable PS RoI Pooling  模型进行了对比，两个对比模型均采用了 RoI Warping 操作来对几何形变进行建模。在对比实验中，我们使用 Light-Head R-CNN OBB 作为 baseline，将 PS RoI Align 分别替换为 deformable PS RoI Pooling 和 RoI Transformer。
 
+  * #### Complexity
+
+    RoI Transformer 和 deformable RoI pooling 的定位部分都比较轻量化，形式均为一个全连接层后接一个normal pooled(不知道怎么翻译)特征向量。对 RoI Transformer 来说， 只有 $\left(t_{x}, t_{y}, t_{w}, t_{h}, t_{\theta}\right)$ 这五个参数需要学习，而对于 deformable PS RoI pooling 来说，每个 bin 都有一组 offsets 需要学习，可学习参数规模为 $7 \times 7 \times 2$ 。因此我们的模型在计算上相对更简洁一些。从 Tab.4 中，我们观察到 RoI Transformer 相对于 deformable RoI pooling 使用了更少的内存 (273MB V.S. 273.2MB)，推理时间也更快 (0.17s V.S. 0.206s per image)。不过由于训练时需要额外的匹配 RRoI 和 RGT 的操作，RoI Transformer 在训练时的单次推理时间略慢 (0.475s V.S. 0.445s)。
+
+  * #### Detection Accuracy
+
+    检测精度的对比结果展示于 Tab.4 中。Deformable PS RoI pooling 比用作 baseline 的 Light-Head R-CNN OBB 高了 5.6 个百分点，比我们设计的 RoI Transformer 低了 3.85 个百分点。我们认为 RoI Transformer 在性能上的提升有两方面的原因：
+
+    ​	1) 相比于 deformable PS RoI pooling ，RoI Transformer 对物体在几何形状上的刚性变化的建模更加精确。
+
+    ​	2) Deformable PS RoI pooling 的回归目标是相对于 HRoI 来计算的，未使用边界的偏移量。我们的回归目标是相对于 RRoI 来计算的，在初始化时更加精确，不存在歧义性。
+
+    Light-Head R-CNN OBB Baseline、Deformable Position Sensitive RoI pooling 和 RoI Transformer 的部分检测结果分别图示于 Fig. 7，Fig. 8 和 Fig. 9 中。Fig. 7 和 Fig. 8 的第一列图像取自同一幅场景。从展示的结果中我们可以看到 RoI Transformer 能够精确地定位场景中密集排布的物体，而 light-Head R-CNN OBB Baseline 和 deformable Position Sensitive RoI pooling 在定位效果上相对较差。
+
+    在这几幅图中，卡车的头部在三种方法的实验中均被误认为了小型载具，但 RoI Transformer 错分的个数最少。Fig.8 的第二列图像包含了许多细长型的物体，在使用 light-Head R-CNN OBB Baseline 和 deformable Position Sensitive RoI pooling 进行实验时判定的 FN 目标更多，而这些 FN 目标在使用 NMS 进行抑制时效果不是很好，对最终的检测效果有负面影响。相比之下 RoI Transformer 判定的 FN 目标更少一些。
+
+    --[此处插入 Tab.4]--
+
+    --[此处插入 Fig.7]--
+
+    --[此处插入 Fig.8]--
+
+    --[此处插入 Fig.9]--
 
 * ### Ablation Studies
 
+  我们在 DOTA 数据集上进行了一系列模型简化测试来分析 RoI Transformer 的有效性。此处仍然使用 Light-Head R-CNN OBB 作为 baseline，然后不断地改变实验设置来观察检测效果。
 
+  * #### Light RRoI Learner
+
+    为了保证计算效率，我们直接在由 HRoI warping 得到的池化特征后面连接一个输出维度是 5 的全连接层。作为对比，我们也尝试了多个全连接层作为 RRoI Learner，如 Tab.1 的第一第二列所示。我们发现把输出通道为 2048 的多个全连接层当作 RRoI 来使用在 mAP 指标上的下降很小 (0.22 个百分点)，这可能是因为添加了额外的全连接层之后模型需要更长的时间来收敛。
+
+  * #### Contextual RRoI
+
+    文章[9, 42]认为适当地增大 RoI 可以提升检测效果。HRoI 通常包含了许多背景信息，而 RRoI 主要专注于目标实例，如图 Fig.10 所示。完全弃用上下文信息对于定位和识别实例任务来说是不科学的，在这种情况下可能连人工都没法有效地实现检测物体，因此需要在一定程度上适当地扩大 RoI 的感受野。实验中我们分别将 RRoI 的长边和短边尺寸增加至 1.2 和 1.4 倍，最终 AP 值提升了 2.86 个百分点，如 Tab.1 所示。
+
+  * #### NMS on RRoIs
+
+    由于模型中生成的 RoI 是旋转的，因此我们队是否需要对 RRoI 进行 NMS 操作做了实验，结果如 Tab.1 所示，当移除 NMS 操作后 mAP 值提升了约 1.5 个百分点。移除 NMS 后，RoI 的数量更多，recall 值上升，检测结果因而更好。
 
 * ### Comparisons with the State-of-the-art
 
@@ -200,7 +250,7 @@
 
 ## Conclusion
 
-
+​	本文中，我们设计了 RoI Transformer 模块来对物体的刚性形变进行建模，同时解决了 region feature 和目标之间的偏移失配问题。这个模块极大地提升了模型在 DOTA 和 HRSC2016 数据集上 oriented object detection 任务的检测效果，在计算复杂度上却只有极小的增加。大量的实验表明，和在 oriented object detection 任务中广泛用来对几何形变建模的可分离模块相比，我们的模型在 oriented bounding box 标注可用时更合理一些。因此可以推断出我们的模块可以替代 deformable RoI pooling 用于旋转目标检测任务。
 
 
 
